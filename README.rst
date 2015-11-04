@@ -1,4 +1,4 @@
-zinnia-to-puput
+wordpress-to-puput
 ===============
 
 Import your Wordpress blog data into Puput.
