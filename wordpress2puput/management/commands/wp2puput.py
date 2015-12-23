@@ -332,19 +332,25 @@ class Command(LabelCommand):
                 entry.header_image = new_image
                 entry.save()
 
+    def _image_to_embed(self, image):
+        return '<embed alt="{}" embedtype="image" format="fullwidth" id="{}"/>'.format(image.title, image.id)
+
     def process_content_image(self, content):
         self.stdout.write('\tGenerate and replace entry content images....')
         if content:
             root = lxml.html.fromstring(content)
-            for el in root.iter('img'):
-                parent_node = next(el.iterancestors())
-                if 'wp-content' in el.attrib['src'] or 'files' in el.attrib['src']:
-                    img = self._import_image(el.attrib['src'])
-                    title = el.attrib.get('title') or el.attrib.get('alt')
+            for img_node in root.iter('img'):
+                parent_node = img_node.getparent()
+                if 'wp-content' in img_node.attrib['src'] or 'files' in img_node.attrib['src']:
+                    img = self._import_image(img_node.attrib['src'])
+                    title = img_node.attrib.get('title') or img_node.attrib.get('alt')
                     new_image = WagtailImage(file=File(file=img, name=title), title=title)
                     new_image.save()
-                    el.attrib['src'] = new_image.get_rendition('original').file.url
-                    parent_node.attrib['href'] = new_image.get_rendition('original').file.url
-                    self.stdout.write('\t\t{}'.format(el.attrib['src']))
-            content = lxml.html.tostring(root, pretty_print=True)
+                    if parent_node.tag == 'a':
+                        parent_node.addnext(ET.XML(self._image_to_embed(new_image)))
+                        parent_node.drop_tree()
+                    else:
+                        parent_node.append(ET.XML(self._image_to_embed(new_image)))
+                        img_node.drop_tag()
+            content = ET.tostring(root)
         return content
