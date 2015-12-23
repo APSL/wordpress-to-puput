@@ -1,17 +1,10 @@
 # -*- coding: utf-8 -*-
-"""WordPress to puput command module"""
-import lxml.html
-from pip.backwardcompat import raw_input
+import requests
 import pytz
-
+import lxml.html
+import lxml.etree as ET
+from six.moves import input
 from datetime import datetime
-from optparse import make_option
-from xml.etree import ElementTree as ET
-
-try:
-    from urllib.request import urlopen
-except ImportError:  # Python 2
-    from urllib2 import urlopen
 
 from django.conf import settings
 from django.utils import timezone
@@ -28,7 +21,6 @@ from django.core.files.temp import NamedTemporaryFile
 
 from wagtail.wagtailcore.models import Page
 from wagtail.wagtailimages.models import Image as WagtailImage
-
 from puput.models import BlogPage, EntryPage, TagEntryPage as PuputTagEntryPage, Tag as PuputTag, \
     Category as PuputCategory, CategoryEntryPage as PuputCategoryEntryPage
 
@@ -36,11 +28,7 @@ WP_NS = 'http://wordpress.org/export/%s/'
 
 
 class Command(LabelCommand):
-    """
-    Command object for importing a WordPress blog
-    into Puput via a WordPress eXtended RSS (WXR) file.
-    """
-    help = 'Import a Wordpress blog into Zinnia.'
+    help = 'Import blog data from Wordpress'
     label = 'WXR file'
     args = 'wordpress.xml'
 
@@ -53,61 +41,42 @@ class Command(LabelCommand):
     def handle_label(self, wxr_file, **options):
         global WP_NS
         self.get_blog_page(options['slug'], options['title'])
-        self.auto_excerpt = options.get('auto_excerpt', True)
-
-        self.stdout.write('Starting migration from Wordpress to Puput %s:\n')
-
-        self.tree = ET.parse(wxr_file)
-        WP_NS = WP_NS % self.guess_wxr_version(self.tree)
-
+        self.tree = lxml.etree.parse(wxr_file)
+        WP_NS = WP_NS % self.get_wordpress_version(self.tree)
         self.import_authors(self.tree)
-        self.categories = self.import_categories(self.tree.findall('channel/{%s}category' % WP_NS))
+        self.categories = self.import_categories(self.tree.findall(u'channel/{{{0:s}}}category'.format(WP_NS)))
         self.import_entries(self.tree.findall('channel/item'))
 
-    def guess_wxr_version(self, tree):
+    def get_wordpress_version(self, tree):
         """
-        We will try to guess the wxr version used
-        to complete the wordpress xml namespace name.
+        Get the wxr version used on the imported wordpress xml.
         """
         for v in ('1.2', '1.1', '1.0'):
             try:
-                tree.find('channel/{%s}wxr_version' % (WP_NS % v)).text
+                tree.find(u'channel/{{{0:s}}}wxr_version'.format(WP_NS % v)).text
                 return v
             except AttributeError:
                 pass
         raise CommandError('Cannot resolve the wordpress namespace')
 
     def import_authors(self, tree):
-        """
-        Retrieve all the authors used in posts
-        and convert it to new or existing author and
-        return the conversion.
-        """
-
-        self.stdout.write('- Importing authors\n')
+        self.stdout.write('Importing authors...')
 
         post_authors = set()
         for item in tree.findall('channel/item'):
-            post_type = item.find('{%s}post_type' % WP_NS).text
+            post_type = item.find(u'{{{0:s}}}post_type'.format(WP_NS)).text
             if post_type == 'post':
-                post_authors.add(item.find(
-                    '{http://purl.org/dc/elements/1.1/}creator').text)
-
-        self.stdout.write('> %i authors found.\n' % len(post_authors))
+                post_authors.add(item.find('{http://purl.org/dc/elements/1.1/}creator').text)
 
         self.authors = {}
         for post_author in post_authors:
-            self.authors[post_author] = self.migrate_author(post_author.replace(' ', '-'))
+            self.authors[post_author] = self.import_author(post_author.replace(' ', '-'))
 
-    def migrate_author(self, author_name):
-        """
-        Handle actions for migrating the authors.
-        """
-
-        action_text = "The author '%s' needs to be migrated to an user:\n" \
-                      "1. Use an existing user ?\n" \
-                      "2. Create a new user ?\n" \
-                      "Please select a choice: " % author_name
+    def import_author(self, author_name):
+        action_text = u"The author '{0:s}' needs to be migrated to an user:\n" \
+                      u"1. Use an existing user ?\n" \
+                      u"2. Create a new user ?\n" \
+                      u"Please select a choice: ".format(author_name)
         while True:
             selection = str(input(action_text))
             if selection and selection in '12':
@@ -118,7 +87,7 @@ class Command(LabelCommand):
                 username = users[0].get_username()
                 preselected_user = username
                 usernames = [username]
-                usernames_display = ['[%s]' % username]
+                usernames_display = [u'[{0:s}]'.format(username)]
             else:
                 usernames = []
                 usernames_display = []
@@ -126,32 +95,31 @@ class Command(LabelCommand):
                 for user in users:
                     username = user.get_username()
                     if username == author_name:
-                        usernames_display.append('[%s]' % username)
+                        usernames_display.append(u'[{0:s}]'.format(username))
                         preselected_user = username
                     else:
                         usernames_display.append(username)
                     usernames.append(username)
             while True:
-                user_text = "1. Select your user, by typing " \
-                            "one of theses usernames:\n" \
-                            "%s or 'back'\n" \
-                            "Please select a choice: " % \
-                            ', '.join(usernames_display)
-                user_selected = raw_input(user_text)
+                user_text = u"1. Select your user, by typing " \
+                            u"one of theses usernames:\n" \
+                            u"{0:s} or 'back'\n" \
+                            u"Please select a choice: ".format(', '.join(usernames_display))
+                user_selected = input(user_text)
                 if user_selected in usernames:
                     break
                 if user_selected == '' and preselected_user:
                     user_selected = preselected_user
                     break
                 if user_selected.strip() == 'back':
-                    return self.migrate_author(author_name)
+                    return self.import_author(author_name)
             return users.get(**{users[0].USERNAME_FIELD: user_selected})
         else:
-            create_text = "2. Please type the email of " \
-                          "the '%s' user or 'back': " % author_name
-            author_mail = raw_input(create_text)
+            create_text = u"2. Please type the email of " \
+                          u"the '{0:s}' user or 'back': ".format(author_name)
+            author_mail = input(create_text)
             if author_mail.strip() == 'back':
-                return self.migrate_author(author_name)
+                return self.import_author(author_name)
             try:
                 return User.objects.create_user(author_name, author_mail)
             except IntegrityError:
@@ -180,48 +148,33 @@ class Command(LabelCommand):
             revision.publish()
 
     def import_categories(self, category_nodes):
-        """
-        Import all the categories from 'wp:category' nodes,
-        because categories in 'item' nodes are not necessarily
-        all the categories and returning it in a dict for
-        database optimizations.
-        """
-        self.stdout.write('- Importing categories\n')
+        self.stdout.write('Importing categories...')
 
         categories = {}
         for category_node in category_nodes:
-            title = category_node.find('{%s}cat_name' % WP_NS).text[:255]
-            slug = category_node.find(
-                '{%s}category_nicename' % WP_NS).text[:255]
+            title = category_node.find(u'{{{0:s}}}cat_name'.format(WP_NS)).text[:255]
+            slug = category_node.find(u'{{{0:s}}}category_nicename'.format(WP_NS)).text[:255]
             try:
-                parent = category_node.find(
-                    '{%s}category_parent' % WP_NS).text[:255]
+                parent = category_node.find(u'{{{0:s}}}category_parent'.format(WP_NS)).text[:255]
             except TypeError:
                 parent = None
-            self.stdout.write('> %s... ' % title)
+            self.stdout.write(u'\t\t{0:s}'.format(title))
             category, created = PuputCategory.objects.update_or_create(name=title, defaults={
                 'slug': slug, 'parent': categories.get(parent)
             })
             categories[title] = category
-            self.stdout.write('OK\n')
         return categories
 
-    def get_entry_tags(self, tags, page):
-        """
-        Return a list of entry's tags,
-        by using the nicename for url compatibility.
-        """
+    def import_entry_tags(self, tags, page):
+        self.stdout.write("\tImporting tags...")
         for tag in tags:
             domain = tag.attrib.get('domain', 'category')
             if 'tag' in domain and tag.attrib.get('nicename'):
+                self.stdout.write(u'\t\t{}'.format(tag.text))
                 puput_tag, created = PuputTag.objects.update_or_create(name=tag.text)
                 page.entry_tags.add(PuputTagEntryPage(tag=puput_tag))
 
-    def get_entry_categories(self, category_nodes, page):
-        """
-        Return a list of entry's categories
-        based on imported categories.
-        """
+    def import_entry_categories(self, category_nodes, page):
         for category_node in category_nodes:
             domain = category_node.attrib.get('domain')
             if domain == 'category':
@@ -229,32 +182,14 @@ class Command(LabelCommand):
                 PuputCategoryEntryPage.objects.get_or_create(category=puput_category, page=page)
 
     def import_entry(self, title, content, items, item_node):
-        """
-        Importing an entry but some data are missing like
-        related entries, start_publication and end_publication.
-        start_publication and creation_date will use the same value,
-        wich is always in Wordpress $post->post_date.
-        """
-        creation_date = datetime.strptime(
-            item_node.find('{%s}post_date' % WP_NS).text,
-            '%Y-%m-%d %H:%M:%S')
+        creation_date = datetime.strptime(item_node.find(u'{{{0:s}}}post_date'.format(WP_NS)).text, '%Y-%m-%d %H:%M:%S')
         if settings.USE_TZ:
-            creation_date = timezone.make_aware(
-                creation_date, pytz.timezone('GMT'))
+            creation_date = timezone.make_aware(creation_date, pytz.timezone('GMT'))
 
-        excerpt = strip_tags(item_node.find(
-            '{%sexcerpt/}encoded' % WP_NS).text or '')
-        if not excerpt:
-            if self.auto_excerpt:
-                excerpt = Truncator(strip_tags(content)).words(50)
-            else:
-                excerpt = ''
-
-        # Prefer use this function than
-        # item_node.find('{%s}post_name' % WP_NS).text
-        # Because slug can be not well formated
-        slug = slugify(title)[:255] or 'post-%s' % item_node.find(
-            '{%s}post_id' % WP_NS).text
+        excerpt = strip_tags(item_node.find(u'{{{0:s}excerpt/}}encoded'.format(WP_NS)).text or '')
+        if not excerpt and content:
+            excerpt = Truncator(strip_tags(content)).words(50)
+        slug = slugify(title)[:255] or u'post-{0:s}'.format(item_node.find(u'{{{0:s}}}post_id'.format(WP_NS)).text)
         creator = item_node.find('{http://purl.org/dc/elements/1.1/}creator').text
 
         # Create page
@@ -264,25 +199,23 @@ class Command(LabelCommand):
             page = EntryPage(
                 title=title,
                 body=content,
-                excerpt=strip_tags(content),
+                excerpt=strip_tags(excerpt),
                 slug=slug,
-                go_live_at=datetime.strptime(
-                    item_node.find('{%s}post_date_gmt' % WP_NS).text,
-                    '%Y-%m-%d %H:%M:%S'),
+                go_live_at=datetime.strptime(item_node.find(u'{{{0:s}}}post_date_gmt'.format(WP_NS)).text,
+                                             '%Y-%m-%d %H:%M:%S'),
                 first_published_at=creation_date,
                 date=creation_date,
                 owner=self.authors.get(creator),
                 seo_title=title,
                 search_description=excerpt,
-                live=item_node.find(
-                    '{%s}status' % WP_NS).text == 'publish')
+                live=item_node.find(u'{{{0:s}}}status'.format(WP_NS)).text == 'publish')
             self.blogpage.add_child(instance=page)
             revision = self.blogpage.save_revision()
             revision.publish()
-        self.get_entry_tags(item_node.findall('category'), page)
-        self.get_entry_categories(item_node.findall('category'), page)
+        self.import_entry_tags(item_node.findall('category'), page)
+        self.import_entry_categories(item_node.findall('category'), page)
         # Import header image
-        image_id = self.find_image_id(item_node.findall('{%s}postmeta' % WP_NS))
+        image_id = self.find_image_id(item_node.findall(u'{{{0:s}}}postmeta'.format(WP_NS)))
         if image_id:
             self.import_header_image(page, items, image_id)
         page.save()
@@ -290,45 +223,38 @@ class Command(LabelCommand):
 
     def find_image_id(self, metadatas):
         for meta in metadatas:
-            if meta.find('{%s}meta_key' % WP_NS).text == '_thumbnail_id':
-                return meta.find('{%s}meta_value' % WP_NS).text
+            if meta.find(u'{{{0:s}}}meta_key'.format(WP_NS)).text == '_thumbnail_id':
+                return meta.find(u'{{{0:s}}}meta_value'.format(WP_NS)).text
 
     def import_entries(self, items):
-        """
-        Loops over items and find entry to import,
-        an entry need to have 'post_type' set to 'post' and
-        have content.
-        """
-        self.stdout.write('- Importing entries\n')
+        self.stdout.write("Importing entries...")
 
         for item_node in items:
             title = (item_node.find('title').text or '')[:255]
-            post_type = item_node.find('{%s}post_type' % WP_NS).text
+            post_type = item_node.find(u'{{{0:s}}}post_type'.format(WP_NS)).text
             content = item_node.find('{http://purl.org/rss/1.0/modules/content/}encoded').text
 
             if post_type == 'post' and content and title:
-                self.stdout.write('> %s... ' % title)
+                self.stdout.write(u'\t{0:s}'.format(title))
                 content = self.process_content_image(content)
                 self.import_entry(title, content, items, item_node)
 
     def _import_image(self, image_url):
         img = NamedTemporaryFile(delete=True)
-        img.write(urlopen(image_url).read())
+        img.write(requests.get(image_url).content)
         img.flush()
         return img
 
     def import_header_image(self, entry, items, image_id):
         self.stdout.write('\tImport header images....')
         for item in items:
-            post_type = item.find('{%s}post_type' % WP_NS).text
-            if post_type == 'attachment' and item.find('{%s}post_id' % WP_NS).text == image_id:
+            post_type = item.find(u'{{{0:s}}}post_type'.format(WP_NS)).text
+            if post_type == 'attachment' and item.find(u'{{{0:s}}}post_id'.format(WP_NS)).text == image_id:
                 title = item.find('title').text
-                self.stdout.write(' > %s... ' % title)
-                image_url = item.find('{%s}attachment_url' % WP_NS).text.encode('utf-8')
+                image_url = item.find(u'{{{0:s}}}attachment_url'.format(WP_NS)).text
                 img = self._import_image(image_url)
                 new_image = WagtailImage(file=File(file=img, name=title), title=title)
                 new_image.save()
-                self.stdout.write('\t\t{}'.format(new_image.file.url))
                 entry.header_image = new_image
                 entry.save()
 

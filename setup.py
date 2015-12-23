@@ -42,8 +42,9 @@ setup(
     install_requires=[
         'puput==0.2',
         'lxml==3.4.4',
+        'requests==2.7.0'
     ],
-    url='http://github.com/APSL/zinnia-to-puput',
+    url='http://github.com/APSL/wordpress-to-puput',
     author=get_author('wordpress2puput'),
     author_email=get_email('wordpress2puput'),
     classifiers=[
