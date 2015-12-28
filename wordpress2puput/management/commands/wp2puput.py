@@ -196,13 +196,19 @@ class Command(LabelCommand):
         try:
             page = EntryPage.objects.get(slug=slug)
         except EntryPage.DoesNotExist:
+            try:
+                go_live_at = datetime.strptime(item_node.find(u'{{{0:s}}}post_date_gmt'.format(WP_NS)).text,
+                                             '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                # if we can't detect when it goes live we assume the same creation date
+                go_live_at = creation_date
+
             page = EntryPage(
                 title=title,
                 body=content,
                 excerpt=strip_tags(excerpt),
                 slug=slug,
-                go_live_at=datetime.strptime(item_node.find(u'{{{0:s}}}post_date_gmt'.format(WP_NS)).text,
-                                             '%Y-%m-%d %H:%M:%S'),
+                go_live_at=go_live_at,
                 first_published_at=creation_date,
                 date=creation_date,
                 owner=self.authors.get(creator),
@@ -270,13 +276,17 @@ class Command(LabelCommand):
                 if 'wp-content' in img_node.attrib['src'] or 'files' in img_node.attrib['src']:
                     img = self._import_image(img_node.attrib['src'])
                     title = img_node.attrib.get('title') or img_node.attrib.get('alt')
-                    new_image = WagtailImage(file=File(file=img, name=title), title=title)
-                    new_image.save()
-                    if parent_node.tag == 'a':
-                        parent_node.addnext(ET.XML(self._image_to_embed(new_image)))
-                        parent_node.drop_tree()
-                    else:
-                        parent_node.append(ET.XML(self._image_to_embed(new_image)))
-                        img_node.drop_tag()
+                    try:
+                        new_image = WagtailImage(file=File(file=img, name=title), title=title)
+                        new_image.save()
+                        if parent_node.tag == 'a':
+                            parent_node.addnext(ET.XML(self._image_to_embed(new_image)))
+                            parent_node.drop_tree()
+                        else:
+                            parent_node.append(ET.XML(self._image_to_embed(new_image)))
+                            img_node.drop_tag()
+                    except TypeError:
+                        self.stdout.write(u'\t\t{} NOT an image'.format(title))
+
             content = ET.tostring(root)
         return content
