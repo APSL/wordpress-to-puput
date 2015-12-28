@@ -196,13 +196,19 @@ class Command(LabelCommand):
         try:
             page = EntryPage.objects.get(slug=slug)
         except EntryPage.DoesNotExist:
+            try:
+                go_live_at = datetime.strptime(item_node.find(u'{{{0:s}}}post_date_gmt'.format(WP_NS)).text,
+                                             '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                # if we can't detect when it goes live we assume the same creation date
+                go_live_at = creation_date
+
             page = EntryPage(
                 title=title,
                 body=content,
                 excerpt=strip_tags(excerpt),
                 slug=slug,
-                go_live_at=datetime.strptime(item_node.find(u'{{{0:s}}}post_date_gmt'.format(WP_NS)).text,
-                                             '%Y-%m-%d %H:%M:%S'),
+                go_live_at=go_live_at,
                 first_published_at=creation_date,
                 date=creation_date,
                 owner=self.authors.get(creator),
@@ -267,11 +273,14 @@ class Command(LabelCommand):
                 if 'wp-content' in el.attrib['src'] or 'files' in el.attrib['src']:
                     img = self._import_image(el.attrib['src'])
                     title = el.attrib.get('title') or el.attrib.get('alt')
-                    new_image = WagtailImage(file=File(file=img, name=title), title=title)
-                    new_image.save()
-                    el.attrib['src'] = new_image.get_rendition('original').file.url
-                    parent_node.attrib['href'] = new_image.get_rendition('original').file.url
-                    self.stdout.write(u'\t\t{}'.format(el.attrib['src']))
+                    try:
+                        new_image = WagtailImage(file=File(file=img, name=title), title=title)
+                        new_image.save()
+                        el.attrib['src'] = new_image.get_rendition('original').file.url
+                        parent_node.attrib['href'] = new_image.get_rendition('original').file.url
+                        self.stdout.write(u'\t\t{}'.format(el.attrib['src']))
+                    except TypeError:
+                        self.stdout.write('\t\t{} NOT an image'.format(el.attrib['src']))
             # New content with images replaced
             content = lxml.html.tostring(root, pretty_print=True).decode('utf-8')
         return content
