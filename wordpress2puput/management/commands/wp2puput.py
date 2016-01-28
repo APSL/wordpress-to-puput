@@ -3,6 +3,7 @@ import requests
 import pytz
 import lxml.html
 import lxml.etree as ET
+from django.contrib.auth import get_user_model
 from six.moves import input
 from datetime import datetime
 
@@ -13,7 +14,6 @@ from django.utils.text import Truncator
 from django.utils.html import strip_tags
 from django.contrib.sites.models import Site
 from django.db.utils import IntegrityError
-from django.contrib.auth.models import User
 from django.template.defaultfilters import slugify
 from django.core.management.base import CommandError
 from django.core.management.base import LabelCommand
@@ -41,7 +41,7 @@ class Command(LabelCommand):
     def handle_label(self, wxr_file, **options):
         global WP_NS
         self.get_blog_page(options['slug'], options['title'])
-        self.tree = lxml.etree.parse(wxr_file)
+        self.tree = ET.parse(wxr_file)
         WP_NS = WP_NS % self.get_wordpress_version(self.tree)
         self.import_authors(self.tree)
         self.categories = self.import_categories(self.tree.findall(u'channel/{{{0:s}}}category'.format(WP_NS)))
@@ -77,6 +77,7 @@ class Command(LabelCommand):
                       u"1. Use an existing user ?\n" \
                       u"2. Create a new user ?\n" \
                       u"Please select a choice: ".format(author_name)
+        User = get_user_model()
         while True:
             selection = str(input(action_text))
             if selection and selection in '12':
@@ -139,10 +140,7 @@ class Command(LabelCommand):
             site.save()
 
             # Get blogpage content type
-            self.blogpage = BlogPage(
-                title=title,
-                slug=slug,
-            )
+            self.blogpage = BlogPage(title=title, slug=slug)
             rootpage.add_child(instance=self.blogpage)
             revision = rootpage.save_revision()
             revision.publish()
@@ -188,10 +186,15 @@ class Command(LabelCommand):
 
         excerpt = strip_tags(item_node.find(u'{{{0:s}excerpt/}}encoded'.format(WP_NS)).text or '')
         if not excerpt and content:
-            excerpt = Truncator(strip_tags(content)).words(50)
+            excerpt = Truncator(content).words(50)
         slug = slugify(title)[:255] or u'post-{0:s}'.format(item_node.find(u'{{{0:s}}}post_id'.format(WP_NS)).text)
         creator = item_node.find('{http://purl.org/dc/elements/1.1/}creator').text
-
+        try:
+            entry_date = datetime.strptime(item_node.find(u'{{{0:s}}}post_date_gmt'.format(WP_NS)).text,
+                                           '%Y-%m-%d %H:%M:%S')
+        except ValueError:
+            entry_date = datetime.strptime(item_node.find(u'{{{0:s}}}post_date'.format(WP_NS)).text,
+                                           '%Y-%m-%d %H:%M:%S')
         # Create page
         try:
             page = EntryPage.objects.get(slug=slug)
@@ -201,8 +204,7 @@ class Command(LabelCommand):
                 body=content,
                 excerpt=strip_tags(excerpt),
                 slug=slug,
-                go_live_at=datetime.strptime(item_node.find(u'{{{0:s}}}post_date_gmt'.format(WP_NS)).text,
-                                             '%Y-%m-%d %H:%M:%S'),
+                go_live_at=entry_date,
                 first_published_at=creation_date,
                 date=creation_date,
                 owner=self.authors.get(creator),
@@ -240,10 +242,13 @@ class Command(LabelCommand):
                 self.import_entry(title, content, items, item_node)
 
     def _import_image(self, image_url):
-        img = NamedTemporaryFile(delete=True)
-        img.write(requests.get(image_url).content)
-        img.flush()
-        return img
+        image = NamedTemporaryFile(delete=True)
+        response = requests.get(image_url)
+        if response.status_code == 200:
+            image.write(response.content)
+            image.flush()
+            return image
+        return
 
     def import_header_image(self, entry, items, image_id):
         self.stdout.write('\tImport header images....')
@@ -252,11 +257,12 @@ class Command(LabelCommand):
             if post_type == 'attachment' and item.find(u'{{{0:s}}}post_id'.format(WP_NS)).text == image_id:
                 title = item.find('title').text
                 image_url = item.find(u'{{{0:s}}}attachment_url'.format(WP_NS)).text
-                img = self._import_image(image_url)
-                new_image = WagtailImage(file=File(file=img, name=title), title=title)
-                new_image.save()
-                entry.header_image = new_image
-                entry.save()
+                image = self._import_image(image_url)
+                if image:
+                    new_image = WagtailImage(file=File(file=image), title=title)
+                    new_image.save()
+                    entry.header_image = new_image
+                    entry.save()
 
     def _image_to_embed(self, image):
         return '<embed alt="{}" embedtype="image" format="fullwidth" id="{}"/>'.format(image.title, image.id)
@@ -268,15 +274,16 @@ class Command(LabelCommand):
             for img_node in root.iter('img'):
                 parent_node = img_node.getparent()
                 if 'wp-content' in img_node.attrib['src'] or 'files' in img_node.attrib['src']:
-                    img = self._import_image(img_node.attrib['src'])
-                    title = img_node.attrib.get('title') or img_node.attrib.get('alt')
-                    new_image = WagtailImage(file=File(file=img, name=title), title=title)
-                    new_image.save()
-                    if parent_node.tag == 'a':
-                        parent_node.addnext(ET.XML(self._image_to_embed(new_image)))
-                        parent_node.drop_tree()
-                    else:
-                        parent_node.append(ET.XML(self._image_to_embed(new_image)))
-                        img_node.drop_tag()
+                    image = self._import_image(img_node.attrib['src'])
+                    if image:
+                        title = img_node.attrib.get('title') or img_node.attrib.get('alt')
+                        new_image = WagtailImage(file=File(file=image), title=title)
+                        new_image.save()
+                        if parent_node.tag == 'a':
+                            parent_node.addnext(ET.XML(self._image_to_embed(new_image)))
+                            parent_node.drop_tree()
+                        else:
+                            parent_node.append(ET.XML(self._image_to_embed(new_image)))
+                            img_node.drop_tag()
             content = ET.tostring(root)
         return content
