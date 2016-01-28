@@ -40,7 +40,7 @@ setup(
     description='Import your Wordpress blog data into Puput.',
     long_description=open(os.path.join(os.path.dirname(__file__), 'README.rst')).read(),
     install_requires=[
-        'puput==0.2',
+        'puput',
         'lxml==3.4.4',
         'requests==2.7.0'
     ],
