@@ -35,10 +35,11 @@ class Command(LabelCommand):
     SITE = Site.objects.get_current()
 
     def add_arguments(self, parser):
+        parser.add_argument('wxr_file')
         parser.add_argument('--slug', default='blog', help="Slug of the blog.")
         parser.add_argument('--title', default='Blog', help="Title of the blog.")
 
-    def handle_label(self, wxr_file, **options):
+    def handle(self, wxr_file, **options):
         global WP_NS
         self.get_blog_page(options['slug'], options['title'])
         self.tree = ET.parse(wxr_file)
