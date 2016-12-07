@@ -265,7 +265,7 @@ class Command(LabelCommand):
                     entry.save()
 
     def _image_to_embed(self, image):
-        return '<embed alt="{}" embedtype="image" format="fullwidth" id="{}"/>'.format(image.title, image.id)
+        return u'<embed alt="{}" embedtype="image" format="fullwidth" id="{}"/>'.format(image.title, image.id)
 
     def process_content_image(self, content):
         self.stdout.write('\tGenerate and replace entry content images....')
