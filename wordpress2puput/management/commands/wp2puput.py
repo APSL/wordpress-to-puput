@@ -244,11 +244,14 @@ class Command(LabelCommand):
 
     def _import_image(self, image_url):
         image = NamedTemporaryFile(delete=True)
-        response = requests.get(image_url)
-        if response.status_code == 200:
-            image.write(response.content)
-            image.flush()
-            return image
+        try:
+            response = requests.get(image_url)
+            if response.status_code == 200:
+                image.write(response.content)
+                image.flush()
+                return image
+        except requests.exceptions.ConnectionError:
+            print('WARNING: Unable to connect to URL "{}". Image will be broken.'.format(image_url))
         return
 
     def import_header_image(self, entry, items, image_id):
