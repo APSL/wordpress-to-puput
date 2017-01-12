@@ -251,7 +251,7 @@ class Command(LabelCommand):
                 image.flush()
                 return image
         except requests.exceptions.ConnectionError:
-            print('WARNING: Unable to connect to URL "{}". Image will be broken.'.format(image_url))
+            self.stdout.write('WARNING: Unable to connect to URL "{}". Image will be broken.'.format(image_url))
         return
 
     def import_header_image(self, entry, items, image_id):
