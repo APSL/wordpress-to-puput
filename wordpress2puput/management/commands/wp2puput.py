@@ -196,7 +196,7 @@ class Command(LabelCommand):
         creation_date = datetime.strptime(item_node.find(u'{{{0:s}}}post_date'.format(self.WP_NS)).text, '%Y-%m-%d %H:%M:%S')
         if settings.USE_TZ:
             creation_date = timezone.make_aware(creation_date, pytz.timezone('GMT'))
-
+        content = content.decode('UTF-8')
         excerpt = strip_tags(item_node.find(u'{{{0:s}excerpt/}}encoded'.format(self.WP_NS)).text or '')
         if not excerpt and content:
             excerpt = Truncator(content).words(50)
@@ -214,8 +214,8 @@ class Command(LabelCommand):
         except EntryPage.DoesNotExist:
             page = EntryPage(
                 title=title,
-                body=content.decode('UTF-8'),
-                excerpt=strip_tags(excerpt).decode('UTF-8'),
+                body=content,
+                excerpt=strip_tags(excerpt),
                 slug=slug,
                 go_live_at=entry_date,
                 first_published_at=creation_date,
