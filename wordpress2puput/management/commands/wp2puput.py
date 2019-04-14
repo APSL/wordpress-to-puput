@@ -39,14 +39,12 @@ except ImportError:
     from wagtail.wagtailimages.models import Image as WagtailImage
 
 
-WP_NS = 'http://wordpress.org/export/%s/'
-
-
 class Command(LabelCommand):
     help = 'Import blog data from Wordpress'
     label = 'WXR file'
     args = 'wordpress.xml'
 
+    WP_NS = 'http://wordpress.org/export/{0}/'
     SITE = Site.objects.get_current()
 
     def add_arguments(self, parser):
@@ -55,12 +53,11 @@ class Command(LabelCommand):
         parser.add_argument('--title', default='Blog', help='Title of the blog.')
 
     def handle(self, wxr_file, **options):
-        global WP_NS
         self.get_blog_page(options['slug'], options['title'])
         self.tree = ET.parse(wxr_file)
-        WP_NS = WP_NS % self.get_wordpress_version(self.tree)
+        self.WP_NS = self.WP_NS.format(self.get_wordpress_version(self.tree))
         self.import_authors(self.tree)
-        self.categories = self.import_categories(self.tree.findall(u'channel/{{{0:s}}}category'.format(WP_NS)))
+        self.categories = self.import_categories(self.tree.findall(u'channel/{{{0:s}}}category'.format(self.WP_NS)))
         self.import_entries(self.tree.findall('channel/item'))
 
     def get_wordpress_version(self, tree):
@@ -69,7 +66,7 @@ class Command(LabelCommand):
         """
         for v in ('1.2', '1.1', '1.0'):
             try:
-                tree.find(u'channel/{{{0:s}}}wxr_version'.format(WP_NS % v)).text
+                tree.find(u'channel/{{{0:s}}}wxr_version'.format(self.WP_NS % v)).text
                 return v
             except AttributeError:
                 pass
@@ -80,7 +77,7 @@ class Command(LabelCommand):
 
         post_authors = set()
         for item in tree.findall('channel/item'):
-            post_type = item.find(u'{{{0:s}}}post_type'.format(WP_NS)).text
+            post_type = item.find(u'{{{0:s}}}post_type'.format(self.WP_NS)).text
             if post_type == 'post':
                 post_authors.add(item.find('{http://purl.org/dc/elements/1.1/}creator').text)
 
@@ -166,10 +163,10 @@ class Command(LabelCommand):
 
         categories = {}
         for category_node in category_nodes:
-            title = category_node.find(u'{{{0:s}}}cat_name'.format(WP_NS)).text[:255]
-            slug = category_node.find(u'{{{0:s}}}category_nicename'.format(WP_NS)).text[:255]
+            title = category_node.find(u'{{{0:s}}}cat_name'.format(self.WP_NS)).text[:255]
+            slug = category_node.find(u'{{{0:s}}}category_nicename'.format(self.WP_NS)).text[:255]
             try:
-                parent = category_node.find(u'{{{0:s}}}category_parent'.format(WP_NS)).text[:255]
+                parent = category_node.find(u'{{{0:s}}}category_parent'.format(self.WP_NS)).text[:255]
             except TypeError:
                 parent = None
             self.stdout.write(u'\t\t{0:s}'.format(title))
@@ -196,20 +193,20 @@ class Command(LabelCommand):
                 PuputCategoryEntryPage.objects.get_or_create(category=puput_category, page=page)
 
     def import_entry(self, title, content, items, item_node):
-        creation_date = datetime.strptime(item_node.find(u'{{{0:s}}}post_date'.format(WP_NS)).text, '%Y-%m-%d %H:%M:%S')
+        creation_date = datetime.strptime(item_node.find(u'{{{0:s}}}post_date'.format(self.WP_NS)).text, '%Y-%m-%d %H:%M:%S')
         if settings.USE_TZ:
             creation_date = timezone.make_aware(creation_date, pytz.timezone('GMT'))
 
-        excerpt = strip_tags(item_node.find(u'{{{0:s}excerpt/}}encoded'.format(WP_NS)).text or '')
+        excerpt = strip_tags(item_node.find(u'{{{0:s}excerpt/}}encoded'.format(self.WP_NS)).text or '')
         if not excerpt and content:
             excerpt = Truncator(content).words(50)
-        slug = slugify(title)[:255] or u'post-{0:s}'.format(item_node.find(u'{{{0:s}}}post_id'.format(WP_NS)).text)
+        slug = slugify(title)[:255] or u'post-{0:s}'.format(item_node.find(u'{{{0:s}}}post_id'.format(self.WP_NS)).text)
         creator = item_node.find('{http://purl.org/dc/elements/1.1/}creator').text
         try:
-            entry_date = datetime.strptime(item_node.find(u'{{{0:s}}}post_date_gmt'.format(WP_NS)).text,
+            entry_date = datetime.strptime(item_node.find(u'{{{0:s}}}post_date_gmt'.format(self.WP_NS)).text,
                                            '%Y-%m-%d %H:%M:%S')
         except ValueError:
-            entry_date = datetime.strptime(item_node.find(u'{{{0:s}}}post_date'.format(WP_NS)).text,
+            entry_date = datetime.strptime(item_node.find(u'{{{0:s}}}post_date'.format(self.WP_NS)).text,
                                            '%Y-%m-%d %H:%M:%S')
         # Create page
         try:
@@ -226,14 +223,14 @@ class Command(LabelCommand):
                 owner=self.authors.get(creator),
                 seo_title=title,
                 search_description=excerpt,
-                live=item_node.find(u'{{{0:s}}}status'.format(WP_NS)).text == 'publish')
+                live=item_node.find(u'{{{0:s}}}status'.format(self.WP_NS)).text == 'publish')
             self.blogpage.add_child(instance=page)
             revision = self.blogpage.save_revision()
             revision.publish()
         self.import_entry_tags(item_node.findall('category'), page)
         self.import_entry_categories(item_node.findall('category'), page)
         # Import header image
-        image_id = self.find_image_id(item_node.findall(u'{{{0:s}}}postmeta'.format(WP_NS)))
+        image_id = self.find_image_id(item_node.findall(u'{{{0:s}}}postmeta'.format(self.WP_NS)))
         if image_id:
             self.import_header_image(page, items, image_id)
         page.save()
@@ -241,15 +238,15 @@ class Command(LabelCommand):
 
     def find_image_id(self, metadatas):
         for meta in metadatas:
-            if meta.find(u'{{{0:s}}}meta_key'.format(WP_NS)).text == '_thumbnail_id':
-                return meta.find(u'{{{0:s}}}meta_value'.format(WP_NS)).text
+            if meta.find(u'{{{0:s}}}meta_key'.format(self.WP_NS)).text == '_thumbnail_id':
+                return meta.find(u'{{{0:s}}}meta_value'.format(self.WP_NS)).text
 
     def import_entries(self, items):
         self.stdout.write("Importing entries...")
 
         for item_node in items:
             title = (item_node.find('title').text or '')[:255]
-            post_type = item_node.find(u'{{{0:s}}}post_type'.format(WP_NS)).text
+            post_type = item_node.find(u'{{{0:s}}}post_type'.format(self.WP_NS)).text
             content = item_node.find('{http://purl.org/rss/1.0/modules/content/}encoded').text
 
             if post_type == 'post' and content and title:
@@ -272,10 +269,10 @@ class Command(LabelCommand):
     def import_header_image(self, entry, items, image_id):
         self.stdout.write('\tImport header images....')
         for item in items:
-            post_type = item.find(u'{{{0:s}}}post_type'.format(WP_NS)).text
-            if post_type == 'attachment' and item.find(u'{{{0:s}}}post_id'.format(WP_NS)).text == image_id:
+            post_type = item.find(u'{{{0:s}}}post_type'.format(self.WP_NS)).text
+            if post_type == 'attachment' and item.find(u'{{{0:s}}}post_id'.format(self.WP_NS)).text == image_id:
                 title = item.find('title').text
-                image_url = item.find(u'{{{0:s}}}attachment_url'.format(WP_NS)).text
+                image_url = item.find(u'{{{0:s}}}attachment_url'.format(self.WP_NS)).text
                 image = self._import_image(image_url)
                 if image:
                     new_image = WagtailImage(file=File(file=image), title=title)
