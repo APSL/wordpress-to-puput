@@ -1,23 +1,32 @@
 # -*- coding: utf-8 -*-
-import requests
-import pytz
-import lxml.html
-import lxml.etree as ET
-from django.contrib.auth import get_user_model
-from six.moves import input
 from datetime import datetime
 
+import lxml.etree as ET
+import lxml.html
+import pytz
+import requests
+
+from six.moves import input
+
 from django.conf import settings
-from django.utils import timezone
-from django.core.files import File
-from django.utils.text import Truncator
-from django.utils.html import strip_tags
+from django.contrib.auth import get_user_model
 from django.contrib.sites.models import Site
+from django.core.files import File
+from django.core.files.temp import NamedTemporaryFile
+from django.core.management.base import CommandError, LabelCommand
 from django.db.utils import IntegrityError
 from django.template.defaultfilters import slugify
-from django.core.management.base import CommandError
-from django.core.management.base import LabelCommand
-from django.core.files.temp import NamedTemporaryFile
+from django.utils import timezone
+from django.utils.html import strip_tags
+from django.utils.text import Truncator
+
+from puput.models import BlogPage
+from puput.models import Category as PuputCategory
+from puput.models import CategoryEntryPage as PuputCategoryEntryPage
+from puput.models import EntryPage
+from puput.models import Tag as PuputTag
+from puput.models import TagEntryPage as PuputTagEntryPage
+
 
 try:
     from wagtail.core.models import Page
@@ -29,8 +38,6 @@ try:
 except ImportError:
     from wagtail.wagtailimages.models import Image as WagtailImage
 
-from puput.models import BlogPage, EntryPage, TagEntryPage as PuputTagEntryPage, Tag as PuputTag, \
-    Category as PuputCategory, CategoryEntryPage as PuputCategoryEntryPage
 
 WP_NS = 'http://wordpress.org/export/%s/'
 
