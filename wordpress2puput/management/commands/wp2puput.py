@@ -66,7 +66,7 @@ class Command(LabelCommand):
         """
         for v in ('1.2', '1.1', '1.0'):
             try:
-                tree.find(u'channel/{{{0:s}}}wxr_version'.format(self.WP_NS % v)).text
+                tree.find(u'channel/{{{0:s}}}wxr_version'.format(self.WP_NS.format(v))).text
                 return v
             except AttributeError:
                 pass
