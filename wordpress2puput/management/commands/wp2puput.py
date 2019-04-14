@@ -214,8 +214,8 @@ class Command(LabelCommand):
         except EntryPage.DoesNotExist:
             page = EntryPage(
                 title=title,
-                body=content,
-                excerpt=strip_tags(excerpt),
+                body=content.decode('UTF-8'),
+                excerpt=strip_tags(excerpt).decode('UTF-8'),
                 slug=slug,
                 go_live_at=entry_date,
                 first_published_at=creation_date,
