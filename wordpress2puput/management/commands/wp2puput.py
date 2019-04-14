@@ -19,8 +19,16 @@ from django.core.management.base import CommandError
 from django.core.management.base import LabelCommand
 from django.core.files.temp import NamedTemporaryFile
 
-from wagtail.wagtailcore.models import Page
-from wagtail.wagtailimages.models import Image as WagtailImage
+try:
+    from wagtail.core.models import Page
+except ImportError:
+    from wagtail.wagtailcore.models import Page
+
+try:
+    from wagtail.images.models import Image as WagtailImage
+except ImportError:
+    from wagtail.wagtailimages.models import Image as WagtailImage
+
 from puput.models import BlogPage, EntryPage, TagEntryPage as PuputTagEntryPage, Tag as PuputTag, \
     Category as PuputCategory, CategoryEntryPage as PuputCategoryEntryPage
 
@@ -36,8 +44,8 @@ class Command(LabelCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('wxr_file')
-        parser.add_argument('--slug', default='blog', help="Slug of the blog.")
-        parser.add_argument('--title', default='Blog', help="Title of the blog.")
+        parser.add_argument('--slug', default='blog', help='Slug of the blog.')
+        parser.add_argument('--title', default='Blog', help='Title of the blog.')
 
     def handle(self, wxr_file, **options):
         global WP_NS
