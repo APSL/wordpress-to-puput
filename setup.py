@@ -42,7 +42,7 @@ setup(
     install_requires=[
         'puput',
         'lxml==3.4.4',
-        'requests==2.7.0'
+        'requests==2.21.0'
     ],
     url='http://github.com/APSL/wordpress-to-puput',
     author=get_author('wordpress2puput'),
