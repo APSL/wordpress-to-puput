@@ -1,6 +1,9 @@
 wordpress-to-puput
 ==================
 
+.. image:: https://img.shields.io/pypi/v/wordpress-to-puput.svg
+    :target: https://pypi.python.org/pypi/wordpress-to-puput/
+
 Import your Wordpress blog data into Puput.
 
 Usage
