@@ -41,7 +41,7 @@ setup(
     long_description=open(os.path.join(os.path.dirname(__file__), 'README.rst')).read(),
     install_requires=[
         'puput',
-        'lxml==3.4.4',
+        'lxml==4.6.2',
         'requests==2.22.0'
     ],
     url='http://github.com/APSL/wordpress-to-puput',
